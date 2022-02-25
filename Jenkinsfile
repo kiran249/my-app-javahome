@@ -1,52 +1,32 @@
-
-node {
-   // This is to demo github action	
-   def sonarUrl = 'sonar.host.url=http://172.31.30.136:9000'
-   def mvn = tool (name: 'maven3', type: 'maven') + '/bin/mvn'
-   stage('SCM Checkout'){
-    // Clone repo
-	git branch: 'master', 
-	credentialsId: 'github', 
-	url: 'https://github.com/javahometech/myweb'
-   
-   }
-   
-   stage('Sonar Publish'){
-	   withCredentials([string(credentialsId: 'sonarqube', variable: 'sonarToken')]) {
-        def sonarToken = "sonar.login=${sonarToken}"
-        sh "${mvn} sonar:sonar -D${sonarUrl}  -D${sonarToken}"
-	 }
-      
-   }
-   
-	
-   stage('Mvn Package'){
-	   // Build using maven
-	   
-	   sh "${mvn} clean package deploy"
-   }
-   
-   stage('deploy-dev'){
-       def tomcatDevIp = '172.31.28.172'
-	   def tomcatHome = '/opt/tomcat8/'
-	   def webApps = tomcatHome+'webapps/'
-	   def tomcatStart = "${tomcatHome}bin/startup.sh"
-	   def tomcatStop = "${tomcatHome}bin/shutdown.sh"
-	   
-	   sshagent (credentials: ['tomcat-dev']) {
-	      sh "scp -o StrictHostKeyChecking=no target/myweb*.war ec2-user@${tomcatDevIp}:${webApps}myweb.war"
-          sh "ssh ec2-user@${tomcatDevIp} ${tomcatStop}"
-		  sh "ssh ec2-user@${tomcatDevIp} ${tomcatStart}"
-       }
-   }
-   stage('Email Notification'){
-		mail bcc: '', body: """Hi Team, You build successfully deployed
-		                       Job URL : ${env.JOB_URL}
-							   Job Name: ${env.JOB_NAME}
-
-Thanks,
-DevOps Team""", cc: '', from: '', replyTo: '', subject: "${env.JOB_NAME} Success", to: 'hari.kammana@gmail.com'
-   
-   }
+pipeline {
+    agent any
+    tools { 
+        maven 'maven3' 
+    }
+    parameters {
+        string(name: 'SSH_Ip_address', defaultValue: '35.171.25.143', description: 'Enter ssh Ip address')
+        string(name: 'SSH_UserName', defaultValue: 'ec2-user', description: 'Enter ssh Username')
+    }
+    stages {
+        stage('git clone') { 
+            steps {
+                git 'https://github.com/kiran249/my-app-javahome.git' 
+            }
+        }
+        stage('maven install') { 
+            steps {
+                sh 'mvn clean install -DskipTests' 
+            }
+        }
+        stage('ssh connections') { 
+            steps {
+                sshagent(['ssh_connection']) {
+                sh "scp -o StrictHostKeyChecking=no target/*.war '${SSH_UserName}'@'${SSH_Ip_address}':/home/ec2-user/apache-tomcat-10.0.16/webapps/app.war"
+                sh "ssh '${SSH_UserName}'@'${SSH_Ip_address}' 'sh /home/ec2-user/apache-tomcat-10.0.16/bin/shutdown.sh' "
+                sh "ssh '${SSH_UserName}'@'${SSH_Ip_address}' 'sh /home/ec2-user/apache-tomcat-10.0.16/bin/startup.sh' "
+            }
+            }
+        }
+        
+    }
 }
-
